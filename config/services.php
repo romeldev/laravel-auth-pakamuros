@@ -31,4 +31,11 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'pakamuros' => [
+        'client_id' => env('PAKAMUROS_CLIENT_ID'),
+        'client_secret' => env('PAKAMUROS_CLIENT_SECRET'),
+        'redirect' => env('PAKAMUROS_REDIRECT_URI'),
+        'url' => env('PAKAMUROS_URL', 'http://192.168.27.20'),
+    ],
+
 ];

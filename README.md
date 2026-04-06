@@ -1,66 +1,310 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Integrar Login con Pakamuros (OAuth2) en tu proyecto Laravel
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Guia para integrar el boton "Login con Pakamuros" en cualquier proyecto Laravel usando Socialite.
 
-## About Laravel
+## Requisitos previos
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- Laravel 10+
+- Un proyecto con autenticacion funcionando (Breeze, Jetstream, etc.)
+- Credenciales OAuth de Pakamuros (`client_id` y `client_secret`)
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## 1. Instalar Laravel Socialite
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+```bash
+composer require laravel/socialite
+```
 
-## Learning Laravel
+## 2. Variables de entorno
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+Agregar en `.env`:
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+```env
+PAKAMUROS_CLIENT_ID=tu-client-id
+PAKAMUROS_CLIENT_SECRET=tu-client-secret
+PAKAMUROS_REDIRECT_URI=http://tu-app.test/auth/pakamuros/callback
+PAKAMUROS_URL=http://url-de-pakamuros
+```
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+> **Importante:** El `PAKAMUROS_REDIRECT_URI` debe coincidir exactamente con el que esta registrado en el servidor Pakamuros.
 
-## Laravel Sponsors
+## 3. Configurar config/services.php
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+Agregar el bloque `pakamuros`:
 
-### Premium Partners
+```php
+'pakamuros' => [
+    'client_id' => env('PAKAMUROS_CLIENT_ID'),
+    'client_secret' => env('PAKAMUROS_CLIENT_SECRET'),
+    'redirect' => env('PAKAMUROS_REDIRECT_URI'),
+    'url' => env('PAKAMUROS_URL'),
+],
+```
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+## 4. Crear el proveedor Socialite personalizado
 
-## Contributing
+Crear `app/Socialite/PakamurosProvider.php`:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```php
+<?php
 
-## Code of Conduct
+namespace App\Socialite;
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+use Laravel\Socialite\Two\AbstractProvider;
+use Laravel\Socialite\Two\User;
 
-## Security Vulnerabilities
+class PakamurosProvider extends AbstractProvider
+{
+    protected $scopes = [];
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+    protected function baseUrl(): string
+    {
+        return rtrim(config('services.pakamuros.url'), '/');
+    }
 
-## License
+    protected function getAuthUrl($state): string
+    {
+        return $this->buildAuthUrlFromBase(
+            $this->baseUrl() . '/oauth/authorize',
+            $state
+        );
+    }
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+    protected function getTokenUrl(): string
+    {
+        return $this->baseUrl() . '/oauth/token';
+    }
+
+    protected function getUserByToken($token): array
+    {
+        $response = $this->getHttpClient()->get(
+            $this->baseUrl() . '/api/oauth/user',
+            [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $token,
+                    'Accept' => 'application/json',
+                ],
+            ]
+        );
+
+        $data = json_decode($response->getBody()->getContents(), true);
+
+        return $data['data'] ?? $data;
+    }
+
+    protected function mapUserToObject(array $user): User
+    {
+        return (new User())->setRaw($user)->map([
+            'id' => $user['id'],
+            'name' => $user['nombre_completo'],
+            'email' => $user['email'],
+            'nickname' => $user['usuario'],
+        ]);
+    }
+}
+```
+
+## 5. Registrar el driver en AppServiceProvider
+
+En `app/Providers/AppServiceProvider.php`, agregar en el metodo `boot()`:
+
+```php
+use App\Socialite\PakamurosProvider;
+use Laravel\Socialite\Facades\Socialite;
+
+public function boot(): void
+{
+    Socialite::extend('pakamuros', function ($app) {
+        $config = $app['config']['services.pakamuros'];
+
+        return new PakamurosProvider(
+            $app['request'],
+            $config['client_id'],
+            $config['client_secret'],
+            $config['redirect']
+        );
+    });
+}
+```
+
+## 6. Migracion
+
+Crear una migracion para agregar el campo `pakamuros_id` a la tabla `users`:
+
+```bash
+php artisan make:migration add_pakamuros_fields_to_users_table --table=users
+```
+
+```php
+public function up(): void
+{
+    Schema::table('users', function (Blueprint $table) {
+        $table->string('pakamuros_id')->nullable()->unique()->after('id');
+    });
+}
+
+public function down(): void
+{
+    Schema::table('users', function (Blueprint $table) {
+        $table->dropColumn('pakamuros_id');
+    });
+}
+```
+
+Ejecutar la migracion:
+
+```bash
+php artisan migrate
+```
+
+No olvidar agregar `pakamuros_id` al array `$fillable` del modelo `User`:
+
+```php
+protected $fillable = [
+    'name',
+    'email',
+    'password',
+    'pakamuros_id',
+];
+```
+
+## 7. Controlador
+
+Crear `app/Http/Controllers/Auth/PakamurosController.php`:
+
+```php
+<?php
+
+namespace App\Http\Controllers\Auth;
+
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use App\Providers\RouteServiceProvider;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+use Laravel\Socialite\Facades\Socialite;
+
+class PakamurosController extends Controller
+{
+    public function redirect(): RedirectResponse
+    {
+        return Socialite::driver('pakamuros')->redirect();
+    }
+
+    public function callback(): RedirectResponse
+    {
+        try {
+            $pakamurosUser = Socialite::driver('pakamuros')->user();
+        } catch (\Exception $e) {
+            return redirect()->route('login')
+                ->withErrors(['pakamuros' => 'Error al autenticar con Pakamuros.']);
+        }
+
+        $user = User::where('pakamuros_id', $pakamurosUser->getId())->first();
+
+        if (! $user) {
+            $user = User::where('email', $pakamurosUser->getEmail())->first();
+
+            if ($user) {
+                // Vincular cuenta existente con Pakamuros
+                $user->update([
+                    'pakamuros_id' => $pakamurosUser->getId(),
+                    'name' => $pakamurosUser->getName(),
+                ]);
+            } else {
+                // Crear usuario nuevo
+                $user = User::create([
+                    'name' => $pakamurosUser->getName(),
+                    'email' => $pakamurosUser->getEmail(),
+                    'pakamuros_id' => $pakamurosUser->getId(),
+                    'password' => Hash::make(Str::random(32)),
+                    'email_verified_at' => now(),
+                ]);
+            }
+        } else {
+            $user->update(['name' => $pakamurosUser->getName()]);
+        }
+
+        Auth::login($user, remember: true);
+
+        return redirect()->intended(RouteServiceProvider::HOME);
+    }
+}
+```
+
+## 8. Rutas
+
+Agregar en `routes/web.php` (o `routes/auth.php`) dentro del middleware `guest`:
+
+```php
+use App\Http\Controllers\Auth\PakamurosController;
+
+Route::middleware('guest')->group(function () {
+    Route::get('auth/pakamuros/redirect', [PakamurosController::class, 'redirect'])
+        ->name('auth.pakamuros.redirect');
+
+    Route::get('auth/pakamuros/callback', [PakamurosController::class, 'callback'])
+        ->name('auth.pakamuros.callback');
+});
+```
+
+## 9. Boton en la vista de login
+
+Agregar en tu vista de login:
+
+```blade
+<a href="{{ route('auth.pakamuros.redirect') }}"
+   style="background-color: #124A71;"
+   class="w-full inline-flex items-center justify-center gap-3 px-4 py-2 rounded-md text-white font-medium text-sm">
+    <img src="{{ asset('img/logo-pakamuros.png') }}" alt="Pakamuros" class="h-8 w-8 object-contain">
+    Continuar con Pakamuros
+</a>
+```
+
+## Datos del usuario
+
+La API de Pakamuros (`/api/oauth/user`) devuelve la siguiente estructura:
+
+```json
+{
+    "data": {
+        "id": 7777,
+        "usuario": "77777777",
+        "nombres": "ROMEL HAMMERLIN",
+        "apellido_paterno": "DIAZ",
+        "apellido_materno": "RAMOS",
+        "nombre_completo": "DIAZ RAMOS ROMEL HAMMERLIN",
+        "dni": "77777777",
+        "email": "romel@example.com",
+        "es_activo": true
+    }
+}
+```
+
+Los datos accesibles via Socialite despues del login:
+
+| Metodo Socialite           | Campo Pakamuros      |
+|----------------------------|----------------------|
+| `$user->getId()`           | `id`                 |
+| `$user->getName()`         | `nombre_completo`    |
+| `$user->getEmail()`        | `email`              |
+| `$user->getNickname()`     | `usuario`            |
+| `$user->getRaw()`          | Array completo       |
+
+Para acceder a campos adicionales como `dni` o `es_activo`:
+
+```php
+$raw = $pakamurosUser->getRaw();
+$dni = $raw['dni'];
+$activo = $raw['es_activo'];
+```
+
+## Requisito en el servidor Pakamuros
+
+El administrador de Pakamuros debe registrar un OAuth Client con:
+
+- **Redirect URI:** `http://tu-app.test/auth/pakamuros/callback` (debe coincidir exactamente con `PAKAMUROS_REDIRECT_URI`)
+- **Grant type:** Authorization Code
+
+El `client_id` y `client_secret` generados se colocan en el `.env` del proyecto cliente.
