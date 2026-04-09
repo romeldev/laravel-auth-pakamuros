@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: docker/php/Dockerfile
-    container_name: pakamuros-app
+    container_name: auth-pkm-app-prod
     restart: unless-stopped
     working_dir: /var/www/html
     volumes:
@@ -18,6 +18,14 @@ services:
       DB_DATABASE: ${DB_DATABASE:-laravel}
       DB_USERNAME: ${DB_USERNAME:-laravel}
       DB_PASSWORD: ${DB_PASSWORD:-secret}
+      WWWUSER: ${WWWUSER:-1000}
+      WWWGROUP: ${WWWGROUP:-1000}
+    command: >
+      sh -c "
+      mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache &&
+      chmod -R 777 storage bootstrap/cache &&
+      php-fpm
+      "
     depends_on:
       - db
     networks:
@@ -25,7 +33,7 @@ services:
 
   web:
     image: nginx:alpine
-    container_name: pakamuros-web
+    container_name: auth-pkm-web-prod
     restart: unless-stopped
     ports:
       - "${APP_PORT:-8080}:80"
@@ -39,7 +47,7 @@ services:
 
   db:
     image: postgres:16-alpine
-    container_name: pakamuros-postgres
+    container_name: auth-pkm-postgres-prod
     restart: unless-stopped
     ports:
       - "${FORWARD_DB_PORT:-5432}:5432"
